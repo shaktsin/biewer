@@ -1,0 +1,9 @@
+/dist/
+/bin/
+*.test
+*.out
+.DS_Store
+
+# Local Biewer runtime state, if ever created inside the repo by accident
+# during development (should normally live under ~/.biewer).
+/.biewer/
