@@ -13,7 +13,32 @@ import (
 	"time"
 
 	"github.com/shaktsin/biewer/internal/daemon"
+	"github.com/shaktsin/biewer/internal/findings"
 )
+
+// findingsOptionsFromEnv lets the default finding thresholds be overridden
+// for the daemon process, e.g. BIEWER_IDLE_THRESHOLD=10s for a quick local
+// check, or a lower BIEWER_MEMORY_THRESHOLD_MB on a memory-constrained
+// machine. Unset / unparseable values fall back to findings.DefaultOptions
+// (zero Options is replaced with the defaults downstream).
+func findingsOptionsFromEnv() findings.Options {
+	var opts findings.Options
+	if v := os.Getenv("BIEWER_IDLE_THRESHOLD"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			opts.IdleThreshold = d
+		} else {
+			fmt.Fprintf(os.Stderr, "biewer daemon-run: ignoring invalid BIEWER_IDLE_THRESHOLD %q: %v\n", v, err)
+		}
+	}
+	if v := os.Getenv("BIEWER_MEMORY_THRESHOLD_MB"); v != "" {
+		if mb, err := strconv.ParseUint(v, 10, 64); err == nil {
+			opts.MemoryThreshold = mb * 1024 * 1024
+		} else {
+			fmt.Fprintf(os.Stderr, "biewer daemon-run: ignoring invalid BIEWER_MEMORY_THRESHOLD_MB %q: %v\n", v, err)
+		}
+	}
+	return opts
+}
 
 // detachedSysProcAttr starts the daemon in its own session so it survives
 // the CLI invocation exiting (no controlling terminal to be killed with).
@@ -150,7 +175,12 @@ func cmdDaemonRun(_ []string) int {
 		return 1
 	}
 
-	d, err := daemon.New(daemon.Config{Dir: dir})
+	d, err := daemon.New(daemon.Config{
+		Dir:                 dir,
+		FindingsOptions:     findingsOptionsFromEnv(),
+		DisableAutoDiscover: os.Getenv("BIEWER_DISABLE_AUTO_DISCOVER") != "",
+		OTLPAddr:            os.Getenv("BIEWER_OTLP_ADDR"),
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "biewer daemon-run: init:", err)
 		return 1

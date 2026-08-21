@@ -39,6 +39,8 @@ func cmdHook(args []string) int {
 	}()
 
 	switch args[0] {
+	case "new-session-id":
+		fmt.Println(newSessionID())
 	case "claude":
 		hookClaude(args[1:])
 	case "codex-start":
@@ -52,9 +54,11 @@ func cmdHook(args []string) int {
 }
 
 type claudeHookPayload struct {
-	SessionID string `json:"session_id"`
-	Cwd       string `json:"cwd"`
-	ToolName  string `json:"tool_name"`
+	SessionID      string `json:"session_id"`
+	Cwd            string `json:"cwd"`
+	ToolName       string `json:"tool_name"`
+	TranscriptPath string `json:"transcript_path"`
+	Model          string `json:"model"`
 }
 
 func hookClaude(args []string) {
@@ -82,11 +86,13 @@ func hookClaude(args []string) {
 	}
 
 	e := model.Event{
-		SessionID: payload.SessionID,
-		Agent:     model.AgentClaude,
-		Cwd:       payload.Cwd,
-		ToolName:  payload.ToolName,
-		Timestamp: time.Now(),
+		SessionID:      payload.SessionID,
+		Agent:          model.AgentClaude,
+		Cwd:            payload.Cwd,
+		ToolName:       payload.ToolName,
+		TranscriptPath: payload.TranscriptPath,
+		Model:          payload.Model,
+		Timestamp:      time.Now(),
 	}
 	switch event {
 	case "session_start":
@@ -113,8 +119,8 @@ func hookClaude(args []string) {
 }
 
 func hookCodexStart(args []string) {
-	if len(args) != 2 {
-		logHookError("hook codex-start: usage: biewer hook codex-start <cwd> <pid>")
+	if len(args) != 2 && len(args) != 3 {
+		logHookError("hook codex-start: usage: biewer hook codex-start <cwd> <pid> [launch-id]")
 		return
 	}
 	cwd := args[0]
@@ -125,13 +131,16 @@ func hookCodexStart(args []string) {
 	}
 
 	sid := newSessionID()
+	if len(args) == 3 && args[2] != "" {
+		sid = args[2]
+	}
 	// Print the session id first: the wrapper's `sid=$(...)` capture must
 	// see it even if the subsequent daemon call is slow or fails.
 	fmt.Println(sid)
 
 	postEvent(model.Event{
 		Kind: model.EventSessionStart, SessionID: sid, Agent: model.AgentCodex,
-		Cwd: cwd, PID: pid, Timestamp: time.Now(),
+		Cwd: cwd, PID: pid, LaunchID: sid, Timestamp: time.Now(),
 	})
 }
 

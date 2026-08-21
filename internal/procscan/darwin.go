@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DarwinScanner scans the process table via `ps` and listening TCP ports
@@ -26,6 +27,14 @@ func (DarwinScanner) Scan(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	if workingDirs, cwdErr := scanWorkingDirsDarwin(ctx); cwdErr == nil {
+		for pid, cwd := range workingDirs {
+			if process, ok := procs[pid]; ok {
+				process.Cwd = cwd
+				procs[pid] = process
+			}
+		}
+	}
 	ports, err := scanListenPortsDarwin(ctx)
 	if err != nil {
 		// Port discovery is best-effort (lsof can be slow/flaky under
@@ -35,8 +44,36 @@ func (DarwinScanner) Scan(ctx context.Context) (Snapshot, error) {
 	return Snapshot{Processes: procs, ListenPorts: ports}, nil
 }
 
+func scanWorkingDirsDarwin(ctx context.Context) (map[int]string, error) {
+	cmd := exec.CommandContext(ctx, "lsof", "-n", "-d", "cwd", "-Fpn")
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	if err := cmd.Run(); err != nil && output.Len() == 0 {
+		return nil, err
+	}
+
+	workingDirs := make(map[int]string)
+	currentPID := 0
+	scanner := bufio.NewScanner(&output)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) < 2 {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			currentPID, _ = strconv.Atoi(line[1:])
+		case 'n':
+			if currentPID > 0 {
+				workingDirs[currentPID] = line[1:]
+			}
+		}
+	}
+	return workingDirs, scanner.Err()
+}
+
 func scanProcessesDarwin(ctx context.Context) (map[int]RawProcess, error) {
-	cmd := exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,rss=,pcpu=,command=")
+	cmd := exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,rss=,pcpu=,lstart=,command=")
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -48,31 +85,34 @@ func scanProcessesDarwin(ctx context.Context) (map[int]RawProcess, error) {
 	sc := bufio.NewScanner(&out)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(fields[0])
-		ppid, err2 := strconv.Atoi(fields[1])
-		rssKB, err3 := strconv.ParseFloat(fields[2], 64)
-		pcpu, err4 := strconv.ParseFloat(fields[3], 64)
-		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-			continue
-		}
-		command := strings.Join(fields[4:], " ")
-		procs[pid] = RawProcess{
-			PID:      pid,
-			PPID:     ppid,
-			Command:  command,
-			RSSBytes: uint64(rssKB * 1024),
-			CPUPct:   pcpu,
+		if process, ok := parseDarwinProcessLine(sc.Text()); ok {
+			procs[process.PID] = process
 		}
 	}
 	return procs, sc.Err()
+}
+
+func parseDarwinProcessLine(line string) (RawProcess, bool) {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) < 10 {
+		return RawProcess{}, false
+	}
+	pid, err1 := strconv.Atoi(fields[0])
+	ppid, err2 := strconv.Atoi(fields[1])
+	rssKB, err3 := strconv.ParseFloat(fields[2], 64)
+	pcpu, err4 := strconv.ParseFloat(fields[3], 64)
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+		return RawProcess{}, false
+	}
+	startedAt, _ := time.ParseInLocation("Mon Jan 2 15:04:05 2006", strings.Join(fields[4:9], " "), time.Local)
+	return RawProcess{
+		PID:       pid,
+		PPID:      ppid,
+		Command:   strings.Join(fields[9:], " "),
+		StartedAt: startedAt,
+		RSSBytes:  uint64(rssKB * 1024),
+		CPUPct:    pcpu,
+	}, true
 }
 
 func scanListenPortsDarwin(ctx context.Context) (map[int][]int, error) {

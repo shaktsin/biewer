@@ -1,0 +1,20 @@
+[package]
+name = "biewer"
+version = "0.1.0-mvp"
+description = "A local resource supervisor for coding agents"
+repository = "https://github.com/shaktsin/biewer"
+readme = "README.md"
+license = "MIT"
+binaries = ["biewer"]
+build-command = ["sh", "scripts/dist-build.sh"]
+out-dir = "dist-release"
+
+[dist]
+installers = ["shell"]
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+]
+install-path = "~/.biewer/bin"

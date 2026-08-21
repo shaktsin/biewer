@@ -1,0 +1,15 @@
+[workspace]
+members = ["dist:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# Where to host releases
+hosting = "github"
+# Whether to enable GitHub Attestations
+github-attestations = true
+# Install the Go version declared by go.mod before each native build.
+github-build-setup = "steps/release-build-setup.yml"

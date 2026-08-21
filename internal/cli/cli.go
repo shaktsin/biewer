@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 )
 
-const version = "0.1.0-mvp"
+// version is replaced by release builds with -ldflags. Keeping it a variable
+// lets local/source builds remain useful without requiring generated files.
+var version = "0.1.0-mvp"
 
 // Run dispatches args (os.Args[1:]) to a subcommand and returns the process
 // exit code.
@@ -26,14 +28,20 @@ func Run(args []string) int {
 		return cmdEnable(rest)
 	case "disable":
 		return cmdDisable(rest)
+	case "setup":
+		return cmdSetup(rest)
 	case "daemon-run": // internal: spawned by `enable`, not for direct use
 		return cmdDaemonRun(rest)
 	case "status":
 		return cmdStatus(rest)
 	case "watch":
 		return cmdWatch(rest)
+	case "tui":
+		return cmdTUI(rest)
 	case "hooks":
 		return cmdHooks(rest)
+	case "telemetry":
+		return cmdTelemetry(rest)
 	case "hook": // internal: invoked by installed hooks/wrappers
 		return cmdHook(rest)
 	case "sessions":
@@ -57,18 +65,23 @@ func printUsage(w *os.File) {
 	fmt.Fprint(w, `biewer - a local resource supervisor for coding agents
 
 Usage:
+  biewer setup               configure and start Biewer (recommended first run)
   biewer enable              install & start the local daemon
   biewer disable              stop the local daemon
   biewer hooks install        wire up Claude Code hooks + a Codex shell wrapper
   biewer hooks uninstall      remove them again
+  biewer telemetry install    send Claude metrics to the local OTLP receiver
+  biewer telemetry status     check Claude telemetry configuration
+  biewer telemetry uninstall  remove Biewer's Claude telemetry settings
   biewer watch                live view of tracked sessions (like top/docker stats)
+  biewer tui                  interactive terminal dashboard
   biewer status                one-shot snapshot of tracked sessions
   biewer sessions [--limit N] session history
   biewer stop <session-id>    print a cleanup plan and terminate a session's processes
   biewer version               print the version
 
-Run 'biewer enable' once, then 'biewer hooks install', then just use
-'claude' or 'codex' normally. 'biewer watch' follows them from outside.
+Run 'biewer setup' once, then use Claude or Codex normally. Setup starts the
+daemon and installs optional hooks and local-only telemetry attribution.
 `)
 }
 

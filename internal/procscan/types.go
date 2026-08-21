@@ -9,16 +9,21 @@
 // the same Scanner interface.
 package procscan
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // RawProcess is one row of the OS process table, as reported by the
 // platform scanner, before any session attribution.
 type RawProcess struct {
-	PID      int
-	PPID     int
-	Command  string
-	RSSBytes uint64
-	CPUPct   float64
+	PID       int
+	PPID      int
+	Command   string
+	Cwd       string
+	StartedAt time.Time
+	RSSBytes  uint64
+	CPUPct    float64
 }
 
 // Snapshot is one point-in-time scan of the process table and listening

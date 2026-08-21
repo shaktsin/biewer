@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/shaktsin/biewer/internal/model"
+	"github.com/shaktsin/biewer/internal/telemetry"
 )
 
 // --- Server -----------------------------------------------------------
@@ -42,6 +44,29 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(l) }()
 
+	// Agent OTLP/HTTP exporters expect a TCP URL. Keep this receiver bound
+	// strictly to loopback; the control API and dashboard remain Unix-socket
+	// only. Failure to bind (for example, another collector owns :4318) does
+	// not take down process monitoring.
+	var otlpServer *http.Server
+	if d.cfg.OTLPAddr != "off" {
+		if otlpListener, listenErr := listenLoopback(d.cfg.OTLPAddr); listenErr != nil {
+			d.log.Printf("OTLP receiver disabled: %v", listenErr)
+		} else {
+			otlpMux := http.NewServeMux()
+			otlpMux.HandleFunc("/v1/logs", d.handleOTLPLogs)
+			otlpMux.HandleFunc("/v1/traces", handleUnsupportedOTLPSignal)
+			otlpMux.HandleFunc("/v1/metrics", d.handleOTLPMetrics)
+			otlpServer = &http.Server{Handler: otlpMux}
+			go func() {
+				if serveErr := otlpServer.Serve(otlpListener); serveErr != nil && serveErr != http.ErrServerClosed {
+					d.log.Printf("OTLP receiver: %v", serveErr)
+				}
+			}()
+			d.log.Printf("OTLP/HTTP JSON listening on %s (logs and metrics)", d.cfg.OTLPAddr)
+		}
+	}
+
 	go d.RunLoop(ctx)
 
 	select {
@@ -49,6 +74,9 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
+		if otlpServer != nil {
+			_ = otlpServer.Shutdown(shutdownCtx)
+		}
 		return nil
 	case err := <-errCh:
 		if err == http.ErrServerClosed {
@@ -56,6 +84,22 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		}
 		return err
 	}
+}
+
+func listenLoopback(address string) (net.Listener, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BIEWER_OTLP_ADDR %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return nil, fmt.Errorf("BIEWER_OTLP_ADDR must be loopback-only, got %q", address)
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", address, err)
+	}
+	return listener, nil
 }
 
 func removeStaleSocket(path string) error {
@@ -93,8 +137,60 @@ func (d *Daemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (d *Daemon) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if contentType := r.Header.Get("Content-Type"); !strings.Contains(contentType, "json") {
+		http.Error(w, "Biewer accepts OTLP/HTTP JSON; configure the agent protocol as JSON", http.StatusUnsupportedMediaType)
+		return
+	}
+	defer r.Body.Close()
+	events, err := telemetry.DecodeLogs(io.LimitReader(r.Body, 8<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := d.IngestTelemetry(events); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("{}"))
+}
+
+func (d *Daemon) handleOTLPMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if contentType := r.Header.Get("Content-Type"); !strings.Contains(contentType, "json") {
+		http.Error(w, "Biewer accepts OTLP/HTTP JSON; configure OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json", http.StatusUnsupportedMediaType)
+		return
+	}
+	defer r.Body.Close()
+	events, err := telemetry.DecodeMetrics(io.LimitReader(r.Body, 8<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := d.IngestTelemetry(events); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("{}"))
+}
+
+func handleUnsupportedOTLPSignal(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "Biewer currently ingests OTLP logs and metrics, not traces", http.StatusNotImplemented)
+}
+
 func (d *Daemon) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, d.Snapshot())
+	writeJSON(w, http.StatusOK, d.PersistedSnapshot())
 }
 
 func (d *Daemon) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +287,9 @@ func (d *Daemon) Plan(idOrPrefix string) (StopPlan, error) {
 	}
 	if found == nil {
 		return StopPlan{}, fmt.Errorf("no live session matching %q (already ended? try `biewer sessions`)", idOrPrefix)
+	}
+	if found.ResourceScope == model.ResourceNone || len(found.ProcessTree) == 0 {
+		return StopPlan{}, fmt.Errorf("session %q is a logical task with no safely attributed processes to stop", idOrPrefix)
 	}
 
 	plan := StopPlan{SessionID: found.Session.ID, Project: found.Session.Project}

@@ -38,10 +38,19 @@ codex() {
     command codex "$@"
     return $?
   fi
-  ( command codex "$@" ) &
-  local biewer_pid=$!
   local biewer_sid
-  biewer_sid=$(biewer hook codex-start "$PWD" "$biewer_pid" 2>/dev/null)
+  biewer_sid=$(biewer hook new-session-id 2>/dev/null)
+  if [ -z "$biewer_sid" ]; then
+    command codex "$@"
+    return $?
+  fi
+  local biewer_otel_attrs="biewer.launch.id=$biewer_sid"
+  if [ -n "${OTEL_RESOURCE_ATTRIBUTES:-}" ]; then
+    biewer_otel_attrs="${OTEL_RESOURCE_ATTRIBUTES},${biewer_otel_attrs}"
+  fi
+  ( OTEL_RESOURCE_ATTRIBUTES="$biewer_otel_attrs" command codex "$@" ) &
+  local biewer_pid=$!
+  biewer hook codex-start "$PWD" "$biewer_pid" "$biewer_sid" >/dev/null 2>&1
   wait "$biewer_pid"
   local biewer_ec=$?
   [ -n "$biewer_sid" ] && biewer hook codex-end "$biewer_sid" >/dev/null 2>&1

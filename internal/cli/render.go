@@ -58,17 +58,19 @@ func shortPorts(ports []int) string {
 // tree and findings, in the spirit of the project's README mockup.
 func renderSnapshot(w io.Writer, snap model.Snapshot, now time.Time) {
 	if len(snap.Sessions) == 0 {
-		fmt.Fprintln(w, "No tracked sessions. Run 'claude' or 'codex' after 'biewer hooks install'.")
+		fmt.Fprintln(w, "No tracked sessions. Biewer auto-detects Claude Desktop, ChatGPT, and a bare claude/codex")
+		fmt.Fprintln(w, "the moment they're running — if one is open and still shows nothing, see the README's")
+		fmt.Fprintln(w, "auto-discovery patterns (process names can vary by install).")
 		return
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "PROJECT\tAGENT\tSESSION\tSTATE\tCPU\tMEMORY\tPEAK\tPIDS\tPORTS")
+	fmt.Fprintln(tw, "PROJECT\tAGENT\tSESSION\tSRC\tATTR\tSTATE\tTOKENS\tCPU\tMEMORY\tPIDS\tPORTS")
 	for _, ss := range snap.Sessions {
 		s := ss.Session
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%.1f%%\t%s\t%s\t%d\t%s\n",
-			truncate(s.Project, 20), s.Agent, shortID(s.ID), stateLabel(ss, now),
-			ss.CPUSeconds, humanBytes(ss.MemoryBytes), humanBytes(ss.PeakMemoryBytes),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\t%s\t%d\t%s\n",
+			truncate(s.Project, 24), s.Agent, shortID(s.ID), s.Source, sessionAttribution(ss), stateLabel(ss, now),
+			humanTokens(ss.Usage.TotalTokens), ss.CPUSeconds, humanBytes(ss.MemoryBytes),
 			ss.ProcessCount, shortPorts(ss.ListenPorts))
 	}
 	tw.Flush()
@@ -77,7 +79,11 @@ func renderSnapshot(w io.Writer, snap model.Snapshot, now time.Time) {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "%s (%s)\n", shortID(ss.Session.ID), ss.Session.Project)
 		if len(ss.ProcessTree) == 0 {
-			fmt.Fprintln(w, "  (no attributed processes — agent process not found; it may have exited without a session_end)")
+			if ss.ResourceScope == model.ResourceNone {
+				fmt.Fprintln(w, "  (logical task; process resources are not assigned to this thread)")
+			} else {
+				fmt.Fprintln(w, "  (no attributed processes)")
+			}
 		}
 		for _, p := range ss.ProcessTree {
 			renderProcessTree(w, p, "  ")
@@ -113,12 +119,21 @@ func stateLabel(ss model.SessionSnapshot, now time.Time) string {
 		return "ended"
 	}
 	if ss.ProcessCount == 0 {
+		if ss.ResourceScope == model.ResourceNone {
+			return "observed"
+		}
 		return "orphaned?" // agent gone but session not marked ended (crash, or session_end hook missing)
 	}
 	return "active"
 }
 
 func shortID(id string) string {
+	// Auto-discovered IDs are short process identifiers (auto-<PID>), not
+	// UUIDs. Truncating them made distinct roots such as auto-44118 and
+	// auto-44134 both appear as auto-441 in the TUI.
+	if strings.HasPrefix(id, "auto-") {
+		return id
+	}
 	if len(id) <= 8 {
 		return id
 	}

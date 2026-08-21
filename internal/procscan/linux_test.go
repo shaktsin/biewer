@@ -6,7 +6,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // writeFakeProc builds a minimal fake /proc/<pid>/{stat,cmdline,status} tree
@@ -109,5 +111,27 @@ func TestLinuxScanner_MissingProcRoot(t *testing.T) {
 	scanner := LinuxScanner{ProcRoot: filepath.Join(t.TempDir(), "does-not-exist")}
 	if _, err := scanner.Scan(context.Background()); err == nil {
 		t.Fatal("expected an error scanning a missing proc root")
+	}
+}
+
+func TestLinuxScannerReadsProcessCreationTime(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "stat"), []byte("btime 1000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeProc(t, root, 123, 1, "codex", "codex\x00", 100)
+	stat := "123 (codex) S 1 " + strings.Repeat("0 ", 17) + "250 0 0\n"
+	if err := os.WriteFile(filepath.Join(root, "123", "stat"), []byte(stat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := LinuxScanner{ProcRoot: root, ClockTicks: 100}
+	snapshot, err := scanner.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Unix(1000, 0).Add(2500 * time.Millisecond)
+	if got := snapshot.Processes[123].StartedAt; !got.Equal(want) {
+		t.Fatalf("process creation time = %v, want %v", got, want)
 	}
 }

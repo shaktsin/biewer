@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // LinuxScanner scans the process table and listening ports via /proc. It is
@@ -20,7 +21,8 @@ import (
 //
 // ProcRoot defaults to "/proc" but is overridable for tests.
 type LinuxScanner struct {
-	ProcRoot string
+	ProcRoot   string
+	ClockTicks uint64
 }
 
 // NewScanner returns the platform Scanner for the current GOOS. On linux
@@ -52,12 +54,13 @@ func (l LinuxScanner) scanProcesses() (map[int]RawProcess, error) {
 		return nil, fmt.Errorf("read %s: %w", l.root(), err)
 	}
 	procs := make(map[int]RawProcess)
+	bootTime := l.bootTime()
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue // not a pid directory
 		}
-		p, ok := l.readProcess(pid)
+		p, ok := l.readProcess(pid, bootTime)
 		if ok {
 			procs[pid] = p
 		}
@@ -68,7 +71,7 @@ func (l LinuxScanner) scanProcesses() (map[int]RawProcess, error) {
 // readProcess reads /proc/<pid>/stat and /proc/<pid>/status for one
 // process. It returns ok=false for processes that exited between the
 // directory listing and the read (a normal race, not an error).
-func (l LinuxScanner) readProcess(pid int) (RawProcess, bool) {
+func (l LinuxScanner) readProcess(pid int, bootTime time.Time) (RawProcess, bool) {
 	statPath := filepath.Join(l.root(), strconv.Itoa(pid), "stat")
 	raw, err := os.ReadFile(statPath)
 	if err != nil {
@@ -116,12 +119,27 @@ func (l LinuxScanner) readProcess(pid int) (RawProcess, bool) {
 			}
 		}
 	}
+	cwd, _ := os.Readlink(filepath.Join(l.root(), strconv.Itoa(pid), "cwd"))
+	var startedAt time.Time
+	// /proc/<pid>/stat field 22 is the process start time in clock ticks
+	// since boot. rest[0] corresponds to field 3, so field 22 is rest[19].
+	if !bootTime.IsZero() && len(rest) > 19 {
+		if ticks, err := strconv.ParseUint(rest[19], 10, 64); err == nil {
+			hz := l.ClockTicks
+			if hz == 0 {
+				hz = 100 // Linux's overwhelmingly common USER_HZ; overridable for unusual hosts/tests.
+			}
+			startedAt = bootTime.Add(time.Duration(ticks/hz)*time.Second + time.Duration(ticks%hz)*time.Second/time.Duration(hz))
+		}
+	}
 
 	return RawProcess{
-		PID:      pid,
-		PPID:     ppid,
-		Command:  command,
-		RSSBytes: rssKB * 1024,
+		PID:       pid,
+		PPID:      ppid,
+		Command:   command,
+		Cwd:       cwd,
+		StartedAt: startedAt,
+		RSSBytes:  rssKB * 1024,
 		// CPUPct is intentionally left at 0 here: an accurate percentage
 		// requires sampling /proc/<pid>/stat utime+stime across two ticks
 		// and dividing by elapsed wall time. macOS's `ps` computes this for
@@ -130,6 +148,23 @@ func (l LinuxScanner) readProcess(pid int) (RawProcess, bool) {
 		// (darwin) target.
 		CPUPct: 0,
 	}, true
+}
+
+func (l LinuxScanner) bootTime() time.Time {
+	payload, err := os.ReadFile(filepath.Join(l.root(), "stat"))
+	if err != nil {
+		return time.Time{}
+	}
+	for _, line := range strings.Split(string(payload), "\n") {
+		if !strings.HasPrefix(line, "btime ") {
+			continue
+		}
+		seconds, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, "btime ")), 10, 64)
+		if err == nil {
+			return time.Unix(seconds, 0)
+		}
+	}
+	return time.Time{}
 }
 
 // scanListenPorts parses /proc/net/tcp[6] for sockets in LISTEN state

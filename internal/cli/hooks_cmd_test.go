@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAddCommandHook_Idempotent(t *testing.T) {
 	var existing any
@@ -113,5 +116,10 @@ func TestInstallCodexWrapper_IsIdempotent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected exactly 1 wrapper block after two installs, found %d in:\n%s", count, content)
+	}
+	for _, wanted := range []string{"biewer hook new-session-id", "biewer.launch.id=", "OTEL_RESOURCE_ATTRIBUTES", "codex-start \"$PWD\" \"$biewer_pid\" \"$biewer_sid\""} {
+		if !strings.Contains(content, wanted) {
+			t.Errorf("installed Codex wrapper missing correlation fragment %q:\n%s", wanted, content)
+		}
 	}
 }
