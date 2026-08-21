@@ -12,7 +12,7 @@ import (
 
 // version is replaced by release builds with -ldflags. Keeping it a variable
 // lets local/source builds remain useful without requiring generated files.
-var version = "0.1.0-mvp"
+var version = "0.1.0"
 
 // Run dispatches args (os.Args[1:]) to a subcommand and returns the process
 // exit code.

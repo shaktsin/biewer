@@ -18,7 +18,8 @@ key, and does not upload prompts or transcripts.
 
 ## Install
 
-The installer selects the correct macOS/Linux and ARM64/x86-64 binary:
+No Go toolchain or native libraries are required. The installer detects the
+operating system and CPU architecture, then downloads a precompiled binary:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
@@ -102,13 +103,14 @@ make vet
 make build-rocksdb
 ```
 
-Releases use cargo-dist's generic-project support:
+Releases use cargo-dist's generic-project support. Go is needed only on the
+release builder, not on users' machines:
 
 ```sh
 dist plan
 dist generate
-git tag v0.1.0-mvp       # match dist.toml
-git push origin v0.1.0-mvp
+git tag v0.1.0       # match dist.toml
+git push origin v0.1.0
 ```
 
 `.github/workflows/release.yml` is generated but intentionally committed:

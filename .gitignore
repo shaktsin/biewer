@@ -2,6 +2,7 @@
 /dist-release/
 /target/
 /bin/
+/.cache/
 *.test
 *.out
 .DS_Store

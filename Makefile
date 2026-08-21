@@ -1,7 +1,7 @@
 BINARY := biewer
 PKG := ./cmd/biewer
 DIST := dist
-VERSION := 0.1.0-mvp
+VERSION := 0.1.0
 
 .PHONY: build build-rocksdb build-all dist-plan dist-snapshot test test-rocksdb vet fmt clean install install-rocksdb
 

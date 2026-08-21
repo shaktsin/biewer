@@ -1,6 +1,6 @@
 [package]
 name = "biewer"
-version = "0.1.0-mvp"
+version = "0.1.0"
 description = "A local resource supervisor for coding agents"
 repository = "https://github.com/shaktsin/biewer"
 readme = "README.md"
