@@ -43,26 +43,6 @@ biewer tui
 `biewer setup` is idempotent. It starts the daemon, installs Claude/Codex
 hooks, and configures Claude's content-disabled local OTLP telemetry.
 
-### Build from source
-
-Requires Go 1.24+:
-
-```sh
-make build
-make install
-biewer setup
-```
-
-For RocksDB:
-
-```sh
-brew install rocksdb        # Debian/Ubuntu: librocksdb-dev
-make install-rocksdb
-```
-
-Portable release binaries use file-backed storage because RocksDB requires a
-matching native library.
-
 ## Commands
 
 ```text
@@ -80,7 +60,9 @@ biewer telemetry status      verify Claude telemetry configuration
 `biewer stop` prints the complete kill plan and asks for confirmation before
 terminating anything.
 
-## Attribution
+## Technical details
+
+### Attribution
 
 | Marker | Meaning |
 |---|---|
@@ -105,7 +87,25 @@ Biewer retains identifiers, timestamps, token counters, aggregate metrics, and
 validated process identity. Prompt text, responses, tool arguments, and tool
 output are ignored.
 
-## Development
+### Storage and source builds
+
+Portable release binaries use file-backed storage and require no Go toolchain
+or native libraries. To build from source, install Go 1.24+ and run:
+
+```sh
+make build
+make install
+biewer setup
+```
+
+For RocksDB:
+
+```sh
+brew install rocksdb        # Debian/Ubuntu: librocksdb-dev
+make install-rocksdb
+```
+
+### Development
 
 ```sh
 make test
@@ -128,7 +128,7 @@ GitHub Actions only discovers workflows stored in the repository at
 `.github/workflows`. Regenerate it with `dist generate`; do not edit it by
 hand.
 
-## Limitations
+### Limitations
 
 Biewer currently supports macOS and Linux native mode. Windows, managed
 cgroup/VM containment, and disk/network I/O accounting are not implemented.
