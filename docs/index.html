@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biewer — Agent Process Supervisor</title>
+  <meta name="description" content="A local terminal dashboard for monitoring Claude Code and Codex sessions, tokens, CPU, memory, ports, and child processes.">
+  <meta name="theme-color" content="#061521">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Biewer — Agent Process Supervisor">
+  <meta property="og:description" content="See what your coding agents are actually using. Local, private, and open source.">
+  <meta property="og:url" content="https://shaktsin.github.io/biewer/">
+  <meta property="og:image" content="https://shaktsin.github.io/biewer/assets/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="Biewer terminal dashboard for Claude Code and Codex">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Biewer — Agent Process Supervisor">
+  <meta name="twitter:description" content="Local observability for Claude Code and Codex.">
+  <meta name="twitter:image" content="https://shaktsin.github.io/biewer/assets/social-preview.png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061521;
+      --bg-deep: #030c14;
+      --panel: rgba(8, 29, 43, 0.76);
+      --panel-strong: #0a2131;
+      --line: rgba(64, 190, 255, 0.2);
+      --line-strong: rgba(64, 190, 255, 0.5);
+      --text: #f4f8fb;
+      --muted: #98aeba;
+      --cyan: #20c8ff;
+      --green: #12eda0;
+      --purple: #b98cff;
+      --orange: #ffb454;
+      --radius: 20px;
+      --max: 1160px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 78% 8%, rgba(32, 200, 255, 0.12), transparent 30rem),
+        radial-gradient(circle at 15% 28%, rgba(18, 237, 160, 0.06), transparent 25rem),
+        linear-gradient(180deg, var(--bg-deep), var(--bg) 32rem, #05111c);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      content: "";
+      pointer-events: none;
+      opacity: 0.16;
+      background-image:
+        linear-gradient(rgba(65, 177, 220, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(65, 177, 220, 0.16) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: linear-gradient(to bottom, black, transparent 58%);
+    }
+
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+    button { font: inherit; }
+    .container { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 76px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      font: 800 20px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.08em;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      color: #00101a;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      border-radius: 8px;
+      box-shadow: 0 0 28px rgba(32, 200, 255, 0.28);
+    }
+
+    .nav-links { display: flex; align-items: center; gap: 24px; color: var(--muted); font-size: 14px; }
+    .nav-links a:hover, .nav-links a:focus-visible { color: var(--text); }
+    .nav-github {
+      padding: 9px 14px;
+      color: var(--text) !important;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.025);
+    }
+
+    .hero { padding: 84px 0 52px; text-align: center; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      padding: 7px 12px;
+      color: var(--green);
+      background: rgba(18, 237, 160, 0.07);
+      border: 1px solid rgba(18, 237, 160, 0.2);
+      border-radius: 999px;
+      font: 650 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .pulse { width: 7px; height: 7px; background: var(--green); border-radius: 50%; box-shadow: 0 0 14px var(--green); }
+    h1 {
+      max-width: 900px;
+      margin: 0 auto;
+      font-size: clamp(44px, 7vw, 82px);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    .gradient-text { color: transparent; background: linear-gradient(100deg, var(--cyan), var(--green)); background-clip: text; -webkit-background-clip: text; }
+    .hero-copy { max-width: 690px; margin: 25px auto 0; color: var(--muted); font-size: clamp(17px, 2vw, 20px); }
+    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 19px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font-weight: 700;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .button:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+    .button-primary { color: #00121c; background: linear-gradient(100deg, var(--cyan), var(--green)); border: 0; }
+    .button-secondary { background: rgba(255,255,255,0.035); }
+
+    .showcase { position: relative; margin-top: 62px; }
+    .showcase::before {
+      position: absolute;
+      inset: 8% 10% -5%;
+      z-index: -1;
+      content: "";
+      background: rgba(32, 200, 255, 0.23);
+      filter: blur(70px);
+    }
+
+    .showcase-frame {
+      padding: 7px;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(32, 200, 255, 0.65), rgba(18, 237, 160, 0.22) 45%, rgba(185, 140, 255, 0.4));
+      border-radius: 22px;
+      box-shadow: 0 28px 90px rgba(0,0,0,0.48);
+    }
+    .showcase-frame img { width: 100%; border-radius: 16px; }
+    .caption { margin-top: 16px; color: #758e9a; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .signal-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin: 48px 0 0;
+      overflow: hidden;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+    .signal { padding: 20px; background: rgba(5, 20, 31, 0.94); }
+    .signal strong { display: block; color: var(--cyan); font: 750 20px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .signal span { color: var(--muted); font-size: 13px; }
+
+    section { padding: 96px 0; }
+    .section-kicker { margin: 0 0 10px; color: var(--cyan); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .13em; text-transform: uppercase; }
+    h2 { max-width: 720px; margin: 0; font-size: clamp(34px, 5vw, 52px); line-height: 1.08; letter-spacing: -0.04em; }
+    .section-intro { max-width: 650px; margin: 16px 0 0; color: var(--muted); font-size: 17px; }
+
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+    .feature {
+      min-height: 210px;
+      padding: 25px;
+      background: linear-gradient(145deg, rgba(12, 39, 56, 0.82), rgba(6, 24, 36, 0.68));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .feature-icon { display: grid; width: 42px; height: 42px; margin-bottom: 28px; place-items: center; color: var(--cyan); background: rgba(32,200,255,.08); border: 1px solid rgba(32,200,255,.18); border-radius: 11px; font: 700 17px ui-monospace, monospace; }
+    .feature:nth-child(2) .feature-icon, .feature:nth-child(5) .feature-icon { color: var(--green); background: rgba(18,237,160,.08); border-color: rgba(18,237,160,.18); }
+    .feature:nth-child(3) .feature-icon { color: var(--purple); background: rgba(185,140,255,.08); border-color: rgba(185,140,255,.18); }
+    .feature h3 { margin: 0 0 8px; font-size: 18px; }
+    .feature p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .install-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 36px; align-items: center; }
+    .terminal {
+      overflow: hidden;
+      background: #020a10;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      box-shadow: 0 22px 70px rgba(0,0,0,.38);
+    }
+    .terminal-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; background: #0a1b27; border-bottom: 1px solid var(--line); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff6b6b; }
+    .dot:nth-child(2) { background: var(--orange); }
+    .dot:nth-child(3) { background: var(--green); }
+    .terminal-title { margin-left: 7px; color: #65808e; font: 11px ui-monospace, monospace; }
+    pre { margin: 0; padding: 25px; overflow-x: auto; color: #cde7f2; font: 13px/1.9 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+    .prompt { color: var(--green); }
+    .command { color: var(--cyan); }
+    .copy {
+      float: right;
+      margin: 15px 15px 0 0;
+      padding: 6px 10px;
+      color: var(--muted);
+      background: #102838;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .copy:hover, .copy:focus-visible { color: var(--text); border-color: var(--line-strong); }
+
+    .privacy {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 30px;
+      padding: 40px;
+      background: linear-gradient(120deg, rgba(18,237,160,.09), rgba(32,200,255,.06));
+      border: 1px solid rgba(18,237,160,.24);
+      border-radius: 24px;
+    }
+    .checks { display: grid; gap: 12px; align-content: center; }
+    .check { display: flex; align-items: center; gap: 11px; color: #c8d7de; }
+    .check-mark { display: grid; flex: 0 0 24px; height: 24px; place-items: center; color: #002219; background: var(--green); border-radius: 50%; font-size: 13px; font-weight: 900; }
+
+    footer { padding: 34px 0 48px; color: #6f8794; border-top: 1px solid var(--line); font-size: 13px; }
+    .footer-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .footer-links { display: flex; gap: 18px; }
+    .footer-links a:hover { color: var(--text); }
+
+    :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+    @media (max-width: 860px) {
+      .hero { padding-top: 58px; }
+      .features { grid-template-columns: repeat(2, 1fr); }
+      .install-grid, .privacy { grid-template-columns: 1fr; }
+      .signal-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 580px) {
+      .container { width: min(calc(100% - 24px), var(--max)); }
+      .nav-links a:not(.nav-github) { display: none; }
+      .hero { padding-top: 44px; }
+      h1 { font-size: 43px; }
+      .showcase { margin-top: 42px; }
+      .showcase-frame { padding: 3px; border-radius: 13px; }
+      .showcase-frame img { border-radius: 10px; }
+      .signal-row, .features { grid-template-columns: 1fr; }
+      section { padding: 72px 0; }
+      .feature { min-height: auto; }
+      .privacy { padding: 27px; }
+      .footer-row { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="container">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="Biewer home"><span class="brand-mark">B</span>BIEWER</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a class="nav-github" href="https://github.com/shaktsin/biewer">GitHub ↗</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero container">
+      <div class="eyebrow"><span class="pulse"></span>Local agent observability</div>
+      <h1>See what your coding agents are <span class="gradient-text">actually using.</span></h1>
+      <p class="hero-copy">Biewer is a local terminal dashboard for Claude Code and Codex sessions—tokens, CPU, memory, child processes, ports, and activity in one live view.</p>
+      <div class="actions">
+        <a class="button button-primary" href="#install">Install Biewer</a>
+        <a class="button button-secondary" href="https://github.com/shaktsin/biewer/releases/tag/v0.1.0">View release</a>
+      </div>
+
+      <div class="showcase">
+        <a class="showcase-frame" href="https://github.com/shaktsin/biewer/releases/download/v0.1.0/biewer-demo.mp4" aria-label="Watch the Biewer terminal demo">
+          <img src="assets/social-preview.png" width="1280" height="640" alt="Biewer agent process supervisor dashboard">
+        </a>
+        <p class="caption">CLICK THE DASHBOARD TO WATCH THE DEMO · NO CLOUD ACCOUNT REQUIRED</p>
+      </div>
+
+      <div class="signal-row" aria-label="Product highlights">
+        <div class="signal"><strong>Local</strong><span>Data stays on your machine</span></div>
+        <div class="signal"><strong>Live</strong><span>Continuously refreshed TUI</span></div>
+        <div class="signal"><strong>4 targets</strong><span>macOS and Linux binaries</span></div>
+        <div class="signal"><strong>0 keys</strong><span>No API account required</span></div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="container">
+        <p class="section-kicker">One terminal. Full context.</p>
+        <h2>Understand every session without breaking your flow.</h2>
+        <p class="section-intro">Biewer combines agent context, transcript usage, operating-system metrics, and process ancestry without pretending ambiguous desktop resources belong to one task.</p>
+        <div class="features">
+          <article class="feature"><div class="feature-icon">01</div><h3>Session overview</h3><p>Browse Claude and Codex tasks with project, model, activity, and token context.</p></article>
+          <article class="feature"><div class="feature-icon">02</div><h3>Token accounting</h3><p>See input, output, cache, reasoning, and project-level consumption from local sources.</p></article>
+          <article class="feature"><div class="feature-icon">03</div><h3>Process trees</h3><p>Follow validated PIDs and their descendants with CPU and attributed memory.</p></article>
+          <article class="feature"><div class="feature-icon">04</div><h3>Ports and findings</h3><p>Spot listening ports, resource pressure, and cleanup opportunities while agents work.</p></article>
+          <article class="feature"><div class="feature-icon">05</div><h3>Accurate attribution</h3><p>Hooks, launch IDs, PID start times, and ancestry reduce false ownership claims.</p></article>
+          <article class="feature"><div class="feature-icon">06</div><h3>Shared resources</h3><p>Desktop application totals remain shared when per-task attribution would be misleading.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="container install-grid">
+        <div>
+          <p class="section-kicker">Ready in a minute</p>
+          <h2>One command. No Go toolchain.</h2>
+          <p class="section-intro">The installer detects macOS or Linux and selects the correct ARM64 or x86-64 precompiled binary. Then setup connects local agent activity.</p>
+          <div class="actions" style="justify-content:flex-start">
+            <a class="button button-secondary" href="https://github.com/shaktsin/biewer#commands">Explore commands</a>
+          </div>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="terminal-title">biewer setup</span></div>
+          <button class="copy" type="button" data-copy aria-label="Copy installation commands">Copy</button>
+          <pre><span class="prompt">$</span> <span class="command">curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/shaktsin/biewer/releases/latest/download/biewer-installer.sh | sh</span>
+
+<span class="prompt">$</span> source ~/.biewer/bin/env
+<span class="prompt">$</span> biewer setup
+<span class="prompt">$</span> biewer tui</pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container privacy">
+        <div>
+          <p class="section-kicker" style="color:var(--green)">Private by architecture</p>
+          <h2>Your agent activity stays yours.</h2>
+          <p class="section-intro">Biewer runs locally and stores operational metadata on your machine. It does not require an API key or upload your prompts and transcripts.</p>
+        </div>
+        <div class="checks">
+          <div class="check"><span class="check-mark">✓</span>Local daemon and database</div>
+          <div class="check"><span class="check-mark">✓</span>Content-disabled OTLP telemetry</div>
+          <div class="check"><span class="check-mark">✓</span>No prompt or response storage</div>
+          <div class="check"><span class="check-mark">✓</span>Open-source MIT license</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-row">
+      <span>Biewer · Agent Process Supervisor</span>
+      <div class="footer-links">
+        <a href="https://github.com/shaktsin/biewer">Source</a>
+        <a href="https://github.com/shaktsin/biewer/issues">Issues</a>
+        <a href="https://github.com/shaktsin/biewer/releases">Releases</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const installCommand = `curl --proto '=https' --tlsv1.2 -LsSf \\
+  https://github.com/shaktsin/biewer/releases/latest/download/biewer-installer.sh | sh
+
+source ~/.biewer/bin/env
+biewer setup
+biewer tui`;
+    const copyButton = document.querySelector('[data-copy]');
+    copyButton.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(installCommand);
+        copyButton.textContent = 'Copied';
+        setTimeout(() => { copyButton.textContent = 'Copy'; }, 1600);
+      } catch {
+        copyButton.textContent = 'Select text';
+      }
+    });
+  </script>
+</body>
+</html>
