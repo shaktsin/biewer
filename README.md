@@ -1,5 +1,15 @@
 # Biewer
 
+<p align="center">
+  <a href="https://github.com/shaktsin/biewer/releases/download/v0.1.0/biewer-demo.mp4">
+    <img src="docs/assets/biewer-demo.png" alt="Biewer live TUI demo" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/shaktsin/biewer/releases/download/v0.1.0/biewer-demo.mp4">▶ Watch the demo</a>
+</p>
+
 Local resource supervisor for Claude Code, Codex CLI, Claude Desktop, and
 ChatGPT Desktop.
 
